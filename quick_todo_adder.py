@@ -66,7 +66,6 @@ class Config:
             "path": r"..\EXTRA INFO\todo.txt",
             "timezone": "Asia/Shanghai",
             "include_creation_date": True,
-            "include_due_time": True,
         },
         "task_defaults": {
             "priority": "",
@@ -230,12 +229,6 @@ class ParsedTask:
     priority: str | None
     due_date: str | None
     due_time: str | None
-    threshold_date: str | None
-    reminder_date: str | None
-    reminder_time: str | None
-    projects: list[str]
-    contexts: list[str]
-    metadata: dict[str, str]
     checklist_items: list[str]
 
 
@@ -257,12 +250,6 @@ class TaskParser:
             priority=self._clean_priority(data.get("priority")) or self.default_priority,
             due_date=self._clean_date(data.get("dueDate")),
             due_time=self._clean_time(data.get("dueTime")),
-            threshold_date=self._clean_date(data.get("thresholdDate", data.get("startDate"))),
-            reminder_date=self._clean_date(data.get("reminderDate")),
-            reminder_time=self._clean_time(data.get("reminderTime")),
-            projects=self._clean_token_list(data.get("projects")),
-            contexts=self._clean_token_list(data.get("contexts")),
-            metadata=self._clean_metadata(data.get("metadata")),
             checklist_items=self._clean_string_list(data.get("checklistItems")),
         )
 
@@ -294,25 +281,6 @@ class TaskParser:
             text = self._clean_string(item)
             if text:
                 cleaned.append(text[:120])
-        return cleaned
-
-    def _clean_token_list(self, value: Any) -> list[str]:
-        cleaned: list[str] = []
-        for item in self._clean_string_list(value):
-            token = re.sub(r"\s+", "", item)
-            if token:
-                cleaned.append(token)
-        return cleaned
-
-    def _clean_metadata(self, value: Any) -> dict[str, str]:
-        if not isinstance(value, dict):
-            return {}
-        cleaned: dict[str, str] = {}
-        for raw_key, raw_value in value.items():
-            key = re.sub(r"[\s:]+", "_", self._clean_string(raw_key)).strip("_")
-            val = re.sub(r"[\s:]+", "_", self._clean_string(raw_value)).strip("_")
-            if key and val:
-                cleaned[key] = val
         return cleaned
 
     def _clean_priority(self, value: Any) -> str | None:
@@ -347,13 +315,11 @@ class TaskParser:
             return text.split("T", 1)[1][:5].replace(":", "")
         raise ValueError(f"Invalid time from model: {text}")
 
-
 class TodoTxtClient:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.path = config.resolve_path(str(config.get("todo_txt", "path", default="todo.txt")))
         self.include_creation_date = bool(config.get("todo_txt", "include_creation_date", default=True))
-        self.include_due_time = bool(config.get("todo_txt", "include_due_time", default=True))
 
     def create_task(self, task: ParsedTask, timezone: ZoneInfo) -> dict[str, Any]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -364,12 +330,6 @@ class TodoTxtClient:
                 priority=task.priority,
                 due_date=task.due_date,
                 due_time=task.due_time,
-                threshold_date=task.threshold_date,
-                reminder_date=None,
-                reminder_time=None,
-                projects=task.projects,
-                contexts=task.contexts,
-                metadata=task.metadata,
                 checklist_items=[],
             )
             lines.append(self._format_line(subtask, timezone))
@@ -385,20 +345,10 @@ class TodoTxtClient:
         if self.include_creation_date:
             parts.append(datetime.now(timezone).strftime("%Y-%m-%d"))
         parts.append(self._single_line(task.description))
-        parts.extend(f"+{project}" for project in task.projects)
-        parts.extend(f"@{context}" for context in task.contexts)
         if task.due_date:
             parts.append(f"due:{task.due_date}")
-            if self.include_due_time and task.due_time:
+            if task.due_time:
                 parts.append(f"due_time:{task.due_time}")
-        if task.threshold_date:
-            parts.append(f"t:{task.threshold_date}")
-        if task.reminder_date:
-            parts.append(f"reminder:{task.reminder_date}")
-            if self.include_due_time and task.reminder_time:
-                parts.append(f"reminder_time:{task.reminder_time}")
-        for key, value in task.metadata.items():
-            parts.append(f"{key}:{value}")
         return " ".join(part for part in parts if part)
 
     def _single_line(self, value: str) -> str:
@@ -462,6 +412,7 @@ class QuickTodoAdderApp:
             self.log(f"Captured {len(selected_text)} chars. Asking model...")
             raw = self.model_client.analyze(selected_text, current_time, self.timezone_name)
             task = self.parser.parse(raw)
+            self._enrich_task_from_source(task, selected_text)
             self.log(f"Adding todo.txt task: {task.description}")
             created = self.todo_client.create_task(task, self.timezone)
             self.log(f"Added task to {created.get('path')}: {created.get('title', task.description)}")
@@ -496,6 +447,18 @@ class QuickTodoAdderApp:
             return ""
         return captured.strip()
 
+    def _enrich_task_from_source(self, task: ParsedTask, source_text: str) -> None:
+        match = re.search(r"(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?", source_text)
+        if not match:
+            return
+        date_part = match.group(1)
+        hour = match.group(2)
+        minute = match.group(3)
+        if not task.due_date:
+            task.due_date = date_part
+        if hour and minute:
+            task.due_time = f"{hour}{minute}"
+
     def toggle(self) -> None:
         self.enabled = not self.enabled
         self.log(f"QuickTodoAdder {'enabled' if self.enabled else 'disabled'}.")
@@ -519,6 +482,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze selected text and add it to a todo.txt file.")
     parser.add_argument("--config", default="config.json", help="Path to the runtime config JSON.")
     parser.add_argument("--text", help="Analyze this text once instead of starting the hotkey listener.")
+    parser.add_argument("--print-raw", action="store_true", help="Print the raw model response in one-shot mode.")
     return parser.parse_args()
 
 
@@ -529,7 +493,10 @@ def main() -> int:
         if args.text:
             current_time = datetime.now(app.timezone).strftime("%Y-%m-%dT%H:%M:%S")
             raw = app.model_client.analyze(args.text, current_time, app.timezone_name)
+            if args.print_raw:
+                print(raw, flush=True)
             task = app.parser.parse(raw)
+            app._enrich_task_from_source(task, args.text)
             created = app.todo_client.create_task(task, app.timezone)
             print(f"Added task to {created['path']}: {created['title']}", flush=True)
             return 0

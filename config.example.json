@@ -45,8 +45,7 @@
   "todo_txt": {
     "path": "todo.txt",
     "timezone": "Asia/Shanghai",
-    "include_creation_date": true,
-    "include_due_time": true
+    "include_creation_date": true
   },
   "task_defaults": {
     "priority": "",

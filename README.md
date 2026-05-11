@@ -1,6 +1,6 @@
 # QuickTodoAdder
 
-Windows local hotkey tool: select text, press a shortcut, let your local model extract todo.txt fields, then append a task that sleek can display.
+Windows local hotkey tool: select text, press a shortcut, let your local model extract a clear task description, due date, and optional due time, then append a todo.txt task that sleek can display.
 
 ## Setup
 
@@ -22,8 +22,7 @@ Configure your model backend and todo.txt path in `config.json`. This local conf
 "todo_txt": {
   "path": "..\\EXTRA INFO\\todo.txt",
   "timezone": "Asia/Shanghai",
-  "include_creation_date": true,
-  "include_due_time": true
+  "include_creation_date": true
 }
 ```
 
@@ -35,7 +34,7 @@ python quick_todo_adder.py --config config.json
 
 ## Usage
 
-Open the same `todo.txt` file in sleek. Select text in any app, then press `ctrl+alt+space`. The tool saves your current clipboard, copies the current selection, waits until the clipboard actually changes, reads the selected text, restores your previous clipboard, asks the model for structured todo.txt fields, and appends one line to the file.
+Open the same `todo.txt` file in sleek. Select text in any app, then press `ctrl+alt+space`. The tool saves your current clipboard, copies the current selection, waits until the clipboard actually changes, reads the selected text, restores your previous clipboard, asks the model for a task description, due date, and optional due time, and appends one line to the file.
 
 Toggle the listener with `ctrl+alt+shift+t`.
 
@@ -45,21 +44,21 @@ For a direct one-shot test without selecting text:
 python quick_todo_adder.py --config config.json --text "后天下午三点之前调研一下论文"
 ```
 
-## todo.txt Mapping
+## sleek Output
 
-The formatter follows the todo.txt rules from `todotxt/todo.txt`:
+The formatter intentionally keeps output compact:
 
-- One line is one task.
 - Priority, when present, is `(A)` to `(Z)` at the start of the line.
-- Creation date, when enabled, is `YYYY-MM-DD` directly after priority or at the start.
-- Projects are written as `+Project`.
-- Contexts are written as `@Context`.
-- Extra metadata is written as `key:value`; keys and values are sanitized to contain no whitespace and no colon.
+- Creation date, when enabled, is `YYYY-MM-DD`.
+- Due date is written as `due:YYYY-MM-DD`.
+- Specific due time is written as `due_time:HHMM`.
+- No `+project`, `@context`, `reminder_time`, or arbitrary metadata is written.
+- If the source includes an exact deadline time, it should be written to `due_time`, not repeated in the description.
 
-Example output:
+Example:
 
 ```text
-2026-05-11 调研论文 due:2026-05-13 due_time:1500
+(A) 2026-05-11 确认是否愿意转投拼多多算法实习生相关岗位 due:2026-05-12 due_time:2300
 ```
 
-The model returns `description`, `priority`, `dueDate`, `dueTime`, `thresholdDate`, `reminderDate`, `reminderTime`, `projects`, `contexts`, `metadata`, and `checklistItems`; the program validates and converts those fields to todo.txt.
+sleek supports due date notifications based on `due:YYYY-MM-DD`. `due_time:HHMM` is a compact local extension for preserving exact times without repeating them in the description.
