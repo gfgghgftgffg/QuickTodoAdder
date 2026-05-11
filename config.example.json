@@ -5,10 +5,11 @@
   },
   "capture": {
     "copy_delay": 0.15,
+    "copy_timeout": 1.0,
     "restore_clipboard": true
   },
   "backend": {
-    "provider": "llamacpp"
+    "provider": "ollama"
   },
   "ollama": {
     "host": "127.0.0.1",
@@ -41,20 +42,14 @@
     "current_time_placeholder": "{{current_time}}",
     "timezone_placeholder": "{{timezone}}"
   },
-  "microsoft": {
-    "client_id": "PASTE_YOUR_AZURE_APP_CLIENT_ID_HERE",
-    "tenant_id": "common",
-    "scopes": [
-      "Tasks.ReadWrite"
-    ],
-    "task_list_id": "",
-    "task_list_name": "",
-    "create_list_if_missing": false,
-    "timezone": "Asia/Shanghai"
+  "todo_txt": {
+    "path": "todo.txt",
+    "timezone": "Asia/Shanghai",
+    "include_creation_date": true,
+    "include_due_time": true
   },
   "task_defaults": {
-    "importance": "normal",
-    "append_source_text": true,
-    "max_title_length": 180
+    "priority": "",
+    "max_description_length": 180
   }
 }

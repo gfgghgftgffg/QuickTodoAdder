@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
-"""Capture selected text, analyze it locally, and add it to Microsoft To Do."""
+﻿# -*- coding: utf-8 -*-
+"""Capture selected text, analyze it locally, and add it to a todo.txt file."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import threading
@@ -17,12 +16,9 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import msal
 import requests
 
 
-GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
-ALLOWED_IMPORTANCE = {"low", "normal", "high"}
 DATETIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
 
 
@@ -34,6 +30,7 @@ class Config:
         },
         "capture": {
             "copy_delay": 0.15,
+            "copy_timeout": 1.0,
             "restore_clipboard": True,
         },
         "backend": {
@@ -65,19 +62,15 @@ class Config:
             "current_time_placeholder": "{{current_time}}",
             "timezone_placeholder": "{{timezone}}",
         },
-        "microsoft": {
-            "client_id": "PASTE_YOUR_AZURE_APP_CLIENT_ID_HERE",
-            "tenant_id": "common",
-            "scopes": ["Tasks.ReadWrite"],
-            "task_list_id": "",
-            "task_list_name": "",
-            "create_list_if_missing": False,
+        "todo_txt": {
+            "path": r"..\EXTRA INFO\todo.txt",
             "timezone": "Asia/Shanghai",
+            "include_creation_date": True,
+            "include_due_time": True,
         },
         "task_defaults": {
-            "importance": "normal",
-            "append_source_text": True,
-            "max_title_length": 180,
+            "priority": "",
+            "max_description_length": 180,
         },
     }
 
@@ -233,43 +226,43 @@ class LocalModelClient:
 
 @dataclass
 class ParsedTask:
-    title: str
-    body: str
-    due_date_time: str | None
-    reminder_date_time: str | None
-    start_date_time: str | None
-    importance: str
-    categories: list[str]
+    description: str
+    priority: str | None
+    due_date: str | None
+    due_time: str | None
+    threshold_date: str | None
+    reminder_date: str | None
+    reminder_time: str | None
+    projects: list[str]
+    contexts: list[str]
+    metadata: dict[str, str]
     checklist_items: list[str]
 
 
 class TaskParser:
     def __init__(self, config: Config) -> None:
-        self.default_importance = str(config.get("task_defaults", "importance", default="normal")).lower()
-        if self.default_importance not in ALLOWED_IMPORTANCE:
-            self.default_importance = "normal"
-        self.max_title_length = int(config.get("task_defaults", "max_title_length", default=180))
+        self.default_priority = self._clean_priority(config.get("task_defaults", "priority", default=""))
+        self.max_description_length = int(config.get("task_defaults", "max_description_length", default=180))
 
     def parse(self, raw_text: str) -> ParsedTask:
         data = self._load_json(raw_text)
-        title = self._clean_string(data.get("title"))
-        if not title:
-            raise ValueError("Model returned an empty title.")
-        if len(title) > self.max_title_length:
-            title = title[: self.max_title_length].rstrip()
-
-        importance = self._clean_string(data.get("importance")).lower() or self.default_importance
-        if importance not in ALLOWED_IMPORTANCE:
-            importance = self.default_importance
+        description = self._clean_string(data.get("description", data.get("title")))
+        if not description:
+            raise ValueError("Model returned an empty description.")
+        if len(description) > self.max_description_length:
+            description = description[: self.max_description_length].rstrip()
 
         return ParsedTask(
-            title=title,
-            body=self._clean_string(data.get("body")),
-            due_date_time=self._clean_datetime(data.get("dueDateTime")),
-            reminder_date_time=self._clean_datetime(data.get("reminderDateTime")),
-            start_date_time=self._clean_datetime(data.get("startDateTime")),
-            importance=importance,
-            categories=self._clean_string_list(data.get("categories")),
+            description=description,
+            priority=self._clean_priority(data.get("priority")) or self.default_priority,
+            due_date=self._clean_date(data.get("dueDate")),
+            due_time=self._clean_time(data.get("dueTime")),
+            threshold_date=self._clean_date(data.get("thresholdDate", data.get("startDate"))),
+            reminder_date=self._clean_date(data.get("reminderDate")),
+            reminder_time=self._clean_time(data.get("reminderTime")),
+            projects=self._clean_token_list(data.get("projects")),
+            contexts=self._clean_token_list(data.get("contexts")),
+            metadata=self._clean_metadata(data.get("metadata")),
             checklist_items=self._clean_string_list(data.get("checklistItems")),
         )
 
@@ -303,144 +296,119 @@ class TaskParser:
                 cleaned.append(text[:120])
         return cleaned
 
-    def _clean_datetime(self, value: Any) -> str | None:
+    def _clean_token_list(self, value: Any) -> list[str]:
+        cleaned: list[str] = []
+        for item in self._clean_string_list(value):
+            token = re.sub(r"\s+", "", item)
+            if token:
+                cleaned.append(token)
+        return cleaned
+
+    def _clean_metadata(self, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_value in value.items():
+            key = re.sub(r"[\s:]+", "_", self._clean_string(raw_key)).strip("_")
+            val = re.sub(r"[\s:]+", "_", self._clean_string(raw_value)).strip("_")
+            if key and val:
+                cleaned[key] = val
+        return cleaned
+
+    def _clean_priority(self, value: Any) -> str | None:
+        text = self._clean_string(value).upper()
+        if not text or text == "NULL":
+            return None
+        if re.fullmatch(r"[A-Z]", text):
+            return text
+        if re.fullmatch(r"\([A-Z]\)", text):
+            return text[1]
+        return None
+
+    def _clean_date(self, value: Any) -> str | None:
         text = self._clean_string(value)
         if not text or text.lower() == "null":
             return None
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-            return f"{text}T09:00:00"
-        if DATETIME_PATTERN.fullmatch(text):
             return text
-        raise ValueError(f"Invalid datetime from model: {text}")
+        if DATETIME_PATTERN.fullmatch(text):
+            return text.split("T", 1)[0]
+        raise ValueError(f"Invalid date from model: {text}")
+
+    def _clean_time(self, value: Any) -> str | None:
+        text = self._clean_string(value)
+        if not text or text.lower() == "null":
+            return None
+        if re.fullmatch(r"\d{2}:\d{2}", text):
+            return text.replace(":", "")
+        if re.fullmatch(r"\d{4}", text):
+            return text
+        if DATETIME_PATTERN.fullmatch(text):
+            return text.split("T", 1)[1][:5].replace(":", "")
+        raise ValueError(f"Invalid time from model: {text}")
 
 
-class MicrosoftTodoClient:
+class TodoTxtClient:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.session = requests.Session()
-        self.client_id = str(config.get("microsoft", "client_id", default="")).strip()
-        self.tenant_id = str(config.get("microsoft", "tenant_id", default="common")).strip() or "common"
-        self.scopes = config.get("microsoft", "scopes", default=["Tasks.ReadWrite"]) or ["Tasks.ReadWrite"]
-        self.cache_path = config.base_dir / ".msal_token_cache.json"
-        self._task_list_id: str | None = str(config.get("microsoft", "task_list_id", default="")).strip() or None
-        self._access_token: str | None = None
+        self.path = config.resolve_path(str(config.get("todo_txt", "path", default="todo.txt")))
+        self.include_creation_date = bool(config.get("todo_txt", "include_creation_date", default=True))
+        self.include_due_time = bool(config.get("todo_txt", "include_due_time", default=True))
 
-    def create_task(self, task: ParsedTask, source_text: str, timezone_name: str) -> dict[str, Any]:
-        list_id = self._task_list_id or self._resolve_task_list_id()
-        payload = self._build_task_payload(task, source_text, timezone_name)
-        response = self._request("POST", f"/me/todo/lists/{list_id}/tasks", json=payload)
-        created = response.json()
+    def create_task(self, task: ParsedTask, timezone: ZoneInfo) -> dict[str, Any]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [self._format_line(task, timezone)]
         for item in task.checklist_items:
-            self._request(
-                "POST",
-                f"/me/todo/lists/{list_id}/tasks/{created['id']}/checklistItems",
-                json={"displayName": item},
+            subtask = ParsedTask(
+                description=f"{task.description} - {item}",
+                priority=task.priority,
+                due_date=task.due_date,
+                due_time=task.due_time,
+                threshold_date=task.threshold_date,
+                reminder_date=None,
+                reminder_time=None,
+                projects=task.projects,
+                contexts=task.contexts,
+                metadata=task.metadata,
+                checklist_items=[],
             )
-        return created
+            lines.append(self._format_line(subtask, timezone))
+        with self.path.open("a", encoding="utf-8", newline="\n") as handle:
+            for line in lines:
+                handle.write(f"{line}\n")
+        return {"title": task.description, "path": str(self.path), "lines": lines}
 
-    def _build_task_payload(self, task: ParsedTask, source_text: str, timezone_name: str) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "title": task.title,
-            "importance": task.importance,
-            "status": "notStarted",
-        }
-        body = task.body
-        if self.config.get("task_defaults", "append_source_text", default=True):
-            source_block = f"Source text:\n{source_text.strip()}"
-            body = f"{body}\n\n{source_block}".strip() if body else source_block
-        if body:
-            payload["body"] = {"contentType": "text", "content": body}
-        if task.categories:
-            payload["categories"] = task.categories
-        if task.due_date_time:
-            payload["dueDateTime"] = {"dateTime": task.due_date_time, "timeZone": timezone_name}
-        if task.start_date_time:
-            payload["startDateTime"] = {"dateTime": task.start_date_time, "timeZone": timezone_name}
-        if task.reminder_date_time:
-            payload["isReminderOn"] = True
-            payload["reminderDateTime"] = {"dateTime": task.reminder_date_time, "timeZone": timezone_name}
-        return payload
+    def _format_line(self, task: ParsedTask, timezone: ZoneInfo) -> str:
+        parts: list[str] = []
+        if task.priority:
+            parts.append(f"({task.priority})")
+        if self.include_creation_date:
+            parts.append(datetime.now(timezone).strftime("%Y-%m-%d"))
+        parts.append(self._single_line(task.description))
+        parts.extend(f"+{project}" for project in task.projects)
+        parts.extend(f"@{context}" for context in task.contexts)
+        if task.due_date:
+            parts.append(f"due:{task.due_date}")
+            if self.include_due_time and task.due_time:
+                parts.append(f"due_time:{task.due_time}")
+        if task.threshold_date:
+            parts.append(f"t:{task.threshold_date}")
+        if task.reminder_date:
+            parts.append(f"reminder:{task.reminder_date}")
+            if self.include_due_time and task.reminder_time:
+                parts.append(f"reminder_time:{task.reminder_time}")
+        for key, value in task.metadata.items():
+            parts.append(f"{key}:{value}")
+        return " ".join(part for part in parts if part)
 
-    def _resolve_task_list_id(self) -> str:
-        desired_name = str(self.config.get("microsoft", "task_list_name", default="")).strip()
-        response = self._request("GET", "/me/todo/lists")
-        lists = response.json().get("value", [])
-        if not isinstance(lists, list) or not lists:
-            raise RuntimeError("No Microsoft To Do task lists were found.")
-
-        if desired_name:
-            for item in lists:
-                if str(item.get("displayName", "")).casefold() == desired_name.casefold():
-                    self._task_list_id = item["id"]
-                    return self._task_list_id
-            if self.config.get("microsoft", "create_list_if_missing", default=False):
-                created = self._request("POST", "/me/todo/lists", json={"displayName": desired_name}).json()
-                self._task_list_id = created["id"]
-                return self._task_list_id
-            raise RuntimeError(f"Microsoft To Do list not found: {desired_name}")
-
-        for item in lists:
-            if item.get("wellknownListName") == "defaultList":
-                self._task_list_id = item["id"]
-                return self._task_list_id
-        self._task_list_id = lists[0]["id"]
-        return self._task_list_id
-
-    def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
-        token = self._get_access_token()
-        headers = kwargs.pop("headers", {})
-        headers["Authorization"] = f"Bearer {token}"
-        headers["Content-Type"] = "application/json"
-        response = self.session.request(method, f"{GRAPH_BASE_URL}{path}", headers=headers, timeout=30, **kwargs)
-        if response.status_code == 401:
-            self._access_token = None
-            token = self._get_access_token(force_interactive=True)
-            headers["Authorization"] = f"Bearer {token}"
-            response = self.session.request(method, f"{GRAPH_BASE_URL}{path}", headers=headers, timeout=30, **kwargs)
-        response.raise_for_status()
-        return response
-
-    def _get_access_token(self, force_interactive: bool = False) -> str:
-        if self._access_token and not force_interactive:
-            return self._access_token
-        if not self.client_id or self.client_id == "PASTE_YOUR_AZURE_APP_CLIENT_ID_HERE":
-            raise RuntimeError("Please set microsoft.client_id in config.json before signing in.")
-
-        cache = msal.SerializableTokenCache()
-        if self.cache_path.exists():
-            cache.deserialize(self.cache_path.read_text(encoding="utf-8"))
-
-        app = msal.PublicClientApplication(
-            client_id=self.client_id,
-            authority=f"https://login.microsoftonline.com/{self.tenant_id}",
-            token_cache=cache,
-        )
-
-        result: dict[str, Any] | None = None
-        accounts = app.get_accounts()
-        if accounts and not force_interactive:
-            result = app.acquire_token_silent(self.scopes, account=accounts[0])
-
-        if not result:
-            flow = app.initiate_device_flow(scopes=self.scopes)
-            if "user_code" not in flow:
-                raise RuntimeError(f"Failed to create device flow: {flow}")
-            print(flow["message"], flush=True)
-            result = app.acquire_token_by_device_flow(flow)
-
-        if cache.has_state_changed:
-            self.cache_path.write_text(cache.serialize(), encoding="utf-8")
-
-        if not result or "access_token" not in result:
-            raise RuntimeError(f"Microsoft login failed: {result}")
-        self._access_token = result["access_token"]
-        return self._access_token
+    def _single_line(self, value: str) -> str:
+        return re.sub(r"\s+", " ", value).strip()
 
 
 class QuickTodoAdderApp:
     def __init__(self, config_path: str) -> None:
         self.config = Config(config_path)
-        timezone_name = str(self.config.get("microsoft", "timezone", default="Asia/Shanghai"))
+        timezone_name = str(self.config.get("todo_txt", "timezone", default="Asia/Shanghai"))
         self.timezone_name = timezone_name
         self.timezone = ZoneInfo(timezone_name)
         prompt_template = PromptTemplate(
@@ -451,7 +419,7 @@ class QuickTodoAdderApp:
         )
         self.model_client = LocalModelClient(self.config, prompt_template)
         self.parser = TaskParser(self.config)
-        self.todo_client = MicrosoftTodoClient(self.config)
+        self.todo_client = TodoTxtClient(self.config)
         self.enabled = True
         self.busy = False
         self.keyboard = None
@@ -467,6 +435,7 @@ class QuickTodoAdderApp:
         self.log(f"Trigger hotkey: {trigger}")
         self.log(f"Toggle hotkey: {toggle}")
         self.log(f"Model endpoint: {self.model_client.url}")
+        self.log(f"todo.txt file: {self.todo_client.path}")
         self.log("Press Ctrl+C to exit.")
         self.keyboard.add_hotkey(trigger, self.on_trigger)
         self.keyboard.add_hotkey(toggle, self.toggle)
@@ -493,9 +462,9 @@ class QuickTodoAdderApp:
             self.log(f"Captured {len(selected_text)} chars. Asking model...")
             raw = self.model_client.analyze(selected_text, current_time, self.timezone_name)
             task = self.parser.parse(raw)
-            self.log(f"Creating To Do task: {task.title}")
-            created = self.todo_client.create_task(task, selected_text, self.timezone_name)
-            self.log(f"Created task: {created.get('title', task.title)}")
+            self.log(f"Adding todo.txt task: {task.description}")
+            created = self.todo_client.create_task(task, self.timezone)
+            self.log(f"Added task to {created.get('path')}: {created.get('title', task.description)}")
         except Exception as exc:
             self.log(f"Error: {exc}")
         finally:
@@ -504,14 +473,25 @@ class QuickTodoAdderApp:
     def capture_selected_text(self) -> str:
         restore_clipboard = bool(self.config.get("capture", "restore_clipboard", default=True))
         delay = float(self.config.get("capture", "copy_delay", default=0.15))
+        timeout = float(self.config.get("capture", "copy_timeout", default=1.0))
         previous = self.pyperclip.paste()
         sentinel = f"__QUICK_TODO_ADDER_COPY_SENTINEL_{uuid.uuid4()}__"
         self.pyperclip.copy(sentinel)
         self.pyautogui.hotkey("ctrl", "c")
-        time.sleep(delay)
-        captured = self.pyperclip.paste()
+        if delay > 0:
+            time.sleep(delay)
+        deadline = time.monotonic() + max(timeout, 0.1)
+        captured = sentinel
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+            captured = self.pyperclip.paste()
+            if captured != sentinel:
+                break
         if restore_clipboard:
-            self.pyperclip.copy(previous)
+            try:
+                self.pyperclip.copy(previous)
+            except Exception:
+                self.log("Warning: failed to restore previous clipboard.")
         if captured == sentinel:
             return ""
         return captured.strip()
@@ -536,15 +516,24 @@ class QuickTodoAdderApp:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze selected text and add it to Microsoft To Do.")
+    parser = argparse.ArgumentParser(description="Analyze selected text and add it to a todo.txt file.")
     parser.add_argument("--config", default="config.json", help="Path to the runtime config JSON.")
+    parser.add_argument("--text", help="Analyze this text once instead of starting the hotkey listener.")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        QuickTodoAdderApp(args.config).run()
+        app = QuickTodoAdderApp(args.config)
+        if args.text:
+            current_time = datetime.now(app.timezone).strftime("%Y-%m-%dT%H:%M:%S")
+            raw = app.model_client.analyze(args.text, current_time, app.timezone_name)
+            task = app.parser.parse(raw)
+            created = app.todo_client.create_task(task, app.timezone)
+            print(f"Added task to {created['path']}: {created['title']}", flush=True)
+            return 0
+        app.run()
     except Exception as exc:
         print(f"Fatal: {exc}", file=sys.stderr)
         return 1
