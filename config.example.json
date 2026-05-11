@@ -1,0 +1,60 @@
+{
+  "hotkeys": {
+    "trigger": "ctrl+alt+space",
+    "toggle": "ctrl+alt+shift+t"
+  },
+  "capture": {
+    "copy_delay": 0.15,
+    "restore_clipboard": true
+  },
+  "backend": {
+    "provider": "llamacpp"
+  },
+  "ollama": {
+    "host": "127.0.0.1",
+    "port": 11434,
+    "endpoint": "/api/generate",
+    "model": "gemma4:e4b",
+    "timeout": 60,
+    "think": false,
+    "options": {
+      "temperature": 0.1
+    }
+  },
+  "llamacpp": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "endpoint": "/completion",
+    "api_format": "completion",
+    "model": "",
+    "timeout": 60,
+    "think": false,
+    "headers": {},
+    "options": {
+      "temperature": 0.1,
+      "n_predict": 512
+    }
+  },
+  "prompt": {
+    "file": "prompts/todo_extractor_prompt.txt",
+    "user_text_placeholder": "{{text}}",
+    "current_time_placeholder": "{{current_time}}",
+    "timezone_placeholder": "{{timezone}}"
+  },
+  "microsoft": {
+    "client_id": "PASTE_YOUR_AZURE_APP_CLIENT_ID_HERE",
+    "tenant_id": "common",
+    "scopes": [
+      "Tasks.ReadWrite"
+    ],
+    "task_list_id": "",
+    "task_list_name": "",
+    "create_list_if_missing": false,
+    "timezone": "Asia/Shanghai"
+  },
+  "task_defaults": {
+    "importance": "normal",
+    "append_source_text": true,
+    "max_title_length": 180
+  }
+}
