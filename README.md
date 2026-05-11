@@ -32,6 +32,8 @@ Run:
 python quick_todo_adder.py --config config.json
 ```
 
+The program stays in the Windows notification area. Use the tray menu to pause listening, open `todo.txt`, open the config, open the project folder, or exit.
+
 ## Usage
 
 Open the same `todo.txt` file in sleek. Select text in any app, then press `ctrl+alt+space`. The tool saves your current clipboard, copies the current selection, waits until the clipboard actually changes, reads the selected text, restores your previous clipboard, asks the model for a task description, due date, and optional due time, and appends one line to the file.

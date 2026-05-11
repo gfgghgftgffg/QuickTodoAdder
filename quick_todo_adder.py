@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import threading
@@ -375,6 +376,10 @@ class QuickTodoAdderApp:
         self.keyboard = None
         self.pyautogui = None
         self.pyperclip = None
+        self.tray_icon = None
+        self.tray = None
+        self.tray_menu_item = None
+        self.tray_image = None
 
     def run(self) -> None:
         self._load_runtime_dependencies()
@@ -386,11 +391,11 @@ class QuickTodoAdderApp:
         self.log(f"Toggle hotkey: {toggle}")
         self.log(f"Model endpoint: {self.model_client.url}")
         self.log(f"todo.txt file: {self.todo_client.path}")
-        self.log("Press Ctrl+C to exit.")
+        self.log("Tray icon started. Use the tray menu to pause or exit.")
         self.keyboard.add_hotkey(trigger, self.on_trigger)
         self.keyboard.add_hotkey(toggle, self.toggle)
         try:
-            self.keyboard.wait()
+            self._run_tray()
         except KeyboardInterrupt:
             self.log("Stopping QuickTodoAdder.")
         finally:
@@ -462,17 +467,81 @@ class QuickTodoAdderApp:
     def toggle(self) -> None:
         self.enabled = not self.enabled
         self.log(f"QuickTodoAdder {'enabled' if self.enabled else 'disabled'}.")
+        self._refresh_tray_menu()
+
+    def open_todo_file(self) -> None:
+        self._open_path(self.todo_client.path)
+
+    def open_config_file(self) -> None:
+        self._open_path(self.config.path)
+
+    def open_project_folder(self) -> None:
+        self._open_path(self.config.base_dir)
+
+    def quit(self) -> None:
+        self.log("Exiting QuickTodoAdder.")
+        if self.keyboard:
+            self.keyboard.unhook_all()
+        if self.tray_icon:
+            self.tray_icon.stop()
+
+    def _run_tray(self) -> None:
+        if not self.tray or not self.tray_image:
+            raise RuntimeError("Missing tray dependency. Run: pip install -r requirements.txt")
+        self.tray_icon = self.tray.Icon(
+            "QuickTodoAdder",
+            self.tray_image,
+            "QuickTodoAdder",
+            self._build_tray_menu(),
+        )
+        self.tray_icon.run()
+
+    def _build_tray_menu(self):
+        status_label = "Pause listening" if self.enabled else "Enable listening"
+        return self.tray.Menu(
+            self.tray.MenuItem(status_label, lambda icon, item: self.toggle(), default=True),
+            self.tray.MenuItem("Open todo.txt", lambda icon, item: self.open_todo_file()),
+            self.tray.MenuItem("Open config", lambda icon, item: self.open_config_file()),
+            self.tray.MenuItem("Open project folder", lambda icon, item: self.open_project_folder()),
+            self.tray.Menu.SEPARATOR,
+            self.tray.MenuItem("Exit", lambda icon, item: self.quit()),
+        )
+
+    def _refresh_tray_menu(self) -> None:
+        if self.tray_icon:
+            self.tray_icon.menu = self._build_tray_menu()
+            self.tray_icon.title = f"QuickTodoAdder ({'enabled' if self.enabled else 'paused'})"
+            self.tray_icon.update_menu()
+
+    def _open_path(self, path: Path) -> None:
+        try:
+            os.startfile(str(path))
+        except OSError as exc:
+            self.log(f"Failed to open {path}: {exc}")
 
     def _load_runtime_dependencies(self) -> None:
         try:
             import keyboard
             import pyautogui
             import pyperclip
+            import pystray
+            from PIL import Image, ImageDraw
         except ModuleNotFoundError as exc:
             raise RuntimeError(f"Missing dependency: {exc.name}. Run: pip install -r requirements.txt") from exc
         self.keyboard = keyboard
         self.pyautogui = pyautogui
         self.pyperclip = pyperclip
+        self.tray = pystray
+        self.tray_image = self._create_tray_image(Image, ImageDraw)
+
+    def _create_tray_image(self, image_module: Any, draw_module: Any):
+        image = image_module.new("RGBA", (64, 64), (18, 24, 38, 255))
+        draw = draw_module.Draw(image)
+        draw.rounded_rectangle((10, 8, 54, 56), radius=8, fill=(245, 247, 250, 255))
+        draw.rectangle((18, 20, 46, 24), fill=(40, 116, 240, 255))
+        draw.rectangle((18, 31, 42, 35), fill=(40, 116, 240, 255))
+        draw.rectangle((18, 42, 36, 46), fill=(40, 116, 240, 255))
+        return image
 
     def log(self, message: str) -> None:
         print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
