@@ -21,6 +21,15 @@ import requests
 
 
 DATETIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+CHINESE_WEEKDAYS = {
+    "Monday": "星期一",
+    "Tuesday": "星期二",
+    "Wednesday": "星期三",
+    "Thursday": "星期四",
+    "Friday": "星期五",
+    "Saturday": "星期六",
+    "Sunday": "星期日",
+}
 
 
 class Config:
@@ -413,7 +422,7 @@ class QuickTodoAdderApp:
             if not selected_text:
                 self.log("No selected text captured.")
                 return
-            current_time = datetime.now(self.timezone).strftime("%Y-%m-%dT%H:%M:%S")
+            current_time = self.current_time_for_prompt()
             self.log(f"Captured {len(selected_text)} chars. Asking model...")
             raw = self.model_client.analyze(selected_text, current_time, self.timezone_name)
             task = self.parser.parse(raw)
@@ -463,6 +472,12 @@ class QuickTodoAdderApp:
             task.due_date = date_part
         if hour and minute:
             task.due_time = f"{hour}{minute}"
+
+    def current_time_for_prompt(self) -> str:
+        now = datetime.now(self.timezone)
+        weekday = now.strftime("%A")
+        chinese_weekday = CHINESE_WEEKDAYS.get(weekday, weekday)
+        return f"{now.strftime('%Y-%m-%dT%H:%M:%S')} ({weekday}, {chinese_weekday})"
 
     def toggle(self) -> None:
         self.enabled = not self.enabled
@@ -560,7 +575,7 @@ def main() -> int:
     try:
         app = QuickTodoAdderApp(args.config)
         if args.text:
-            current_time = datetime.now(app.timezone).strftime("%Y-%m-%dT%H:%M:%S")
+            current_time = app.current_time_for_prompt()
             raw = app.model_client.analyze(args.text, current_time, app.timezone_name)
             if args.print_raw:
                 print(raw, flush=True)

@@ -37,6 +37,23 @@ Date and time rules:
 - dueDate must always be YYYY-MM-DD only. Never include time in dueDate.
 - If no date is inferable, return null for dueDate. If no specific time is inferable, return null for dueTime.
 
+Chinese relative date rules:
+  - Current local time includes weekday information, e.g. "2026-05-13T22:30:00 (Wednesday, 星期三)". Use both the date
+  and weekday when resolving relative dates.
+  - 今天 = current local date.
+  - 明天 = current local date + 1 day.
+  - 后天 = current local date + 2 days.
+  - 大后天 = current local date + 3 days.
+  - 周末 / 本周末 / 这周末 means the upcoming weekend of the current week. If no specific day is given, use Sunday as
+  dueDate.
+  - 本周X / 这周X means weekday X in the current Monday-Sunday week. If that weekday has already passed, use next week's
+  same weekday unless the text clearly refers to the past.
+  - 下周X means weekday X in the next Monday-Sunday week, not just the next occurrence of that weekday.
+  - 下下周X means weekday X two Monday-Sunday weeks after the current week.
+  - If a phrase contains both a relative date and a time, infer both dueDate and dueTime.
+  - If the inferred dueDate would be in the past, adjust to the next future matching date unless the selected text
+  clearly refers to a past event.
+
 Priority rules:
 - Use priority C for normal tasks.
 - Use priority A for clearly urgent/important wording, purchase/抢购 tasks with a specific time, or hard same-day/next-day deadlines.
@@ -54,7 +71,7 @@ Selected text:
 Return:
 {
   "description": "调研论文",
-  "priority": C,
+  "priority": "C",
   "dueDate": "2026-05-13",
   "dueTime": "15:00",
   "checklistItems": []
