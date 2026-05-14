@@ -1,8 +1,10 @@
 # QuickTodoAdder
 
-Windows local hotkey tool for maintaining a `todo.txt` file used by [sleek](https://github.com/ransome1/sleek). Select any message, email, webpage text, or meeting note, press a shortcut, and turn it into a sleek todo automatically. Your local model extracts a clear task description, due date, and optional due time, then appends a sleek-compatible todo.txt task.
+Windows local hotkey tool for maintaining a `todo.txt` file used by [sleek](https://github.com/ransome1/sleek). Select any message, email, webpage text, or meeting note, press a shortcut, and turn it into a sleek todo automatically. Your local model extracts a clear task description, priority, due date, and optional due time, then appends a sleek-compatible todo.txt task.
 
 sleek is an open-source todo manager based on the `todo.txt` syntax. QuickTodoAdder does not replace sleek's UI; it writes tasks into the same `todo.txt` file, and sleek provides the visual task management experience.
+
+![QuickTodoAdder demo](demo.gif)
 
 ## Setup
 
@@ -41,6 +43,8 @@ The program stays in the Windows notification area. Use the tray menu to pause l
 Open the same `todo.txt` file in sleek. Select content from WeChat, email, a browser page, a document, or any other app, then press `ctrl+alt+space`. The tool auto asks the model for a task description, due date, and optional due time, and appends one sleek-compatible todo.txt line to the file.
 
 Toggle the listener with `ctrl+alt+shift+t`.
+
+You can edit `prompts/todo_extractor_prompt.txt` to customize how tasks, priorities, dates, and times are extracted.
 
 For a direct one-shot test without selecting text:
 
