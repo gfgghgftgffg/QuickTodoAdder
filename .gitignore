@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .msal_token_cache.json
 config.json
+start_tray.bat

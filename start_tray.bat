@@ -3,7 +3,7 @@ setlocal
 
 cd /d "%~dp0"
 
-call D:\miniconda3\Scripts\activate.bat quicktodoadder
+call C:\Users\Administrator\miniconda3\Scripts\activate.bat quicktodoadder
 if errorlevel 1 (
   echo Failed to activate conda environment: quicktodoadder
   pause

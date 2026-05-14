@@ -1,7 +1,7 @@
 {
   "hotkeys": {
-    "trigger": "ctrl+alt+space",
-    "toggle": "ctrl+alt+shift+t"
+    "trigger": "f11",
+    "toggle": "ctrl+alt+f11"
   },
   "capture": {
     "copy_delay": 0.15,
@@ -9,10 +9,10 @@
     "restore_clipboard": true
   },
   "backend": {
-    "provider": "ollama"
+    "provider": "llamacpp"
   },
   "ollama": {
-    "host": "127.0.0.1",
+    "host": "10.242.0.142",
     "port": 11434,
     "endpoint": "/api/generate",
     "model": "gemma4:e4b",
@@ -23,17 +23,22 @@
     }
   },
   "llamacpp": {
-    "host": "127.0.0.1",
-    "port": 8080,
-    "endpoint": "/completion",
-    "api_format": "completion",
+    "host": "10.242.0.142",
+    "port": 11434,
+    "endpoint": "/v1/chat/completions",
+    "api_format": "chat_completions",
     "model": "",
     "timeout": 60,
     "think": false,
-    "headers": {},
+    "headers": {
+      "Authorization": "Bearer XXXXXXX"
+    },
     "options": {
       "temperature": 0.1,
-      "n_predict": 512
+      "max_tokens": 1024,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
     }
   },
   "prompt": {
@@ -43,7 +48,7 @@
     "timezone_placeholder": "{{timezone}}"
   },
   "todo_txt": {
-    "path": "todo.txt",
+    "path": "XXXXX\\todo.txt",
     "timezone": "Asia/Shanghai",
     "include_creation_date": true
   },

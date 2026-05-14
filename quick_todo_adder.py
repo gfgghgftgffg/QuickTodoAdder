@@ -382,6 +382,8 @@ class QuickTodoAdderApp:
         self.todo_client = TodoTxtClient(self.config)
         self.enabled = True
         self.busy = False
+        self.hotkey_watchdog_stop = threading.Event()
+        self.hotkey_watchdog_thread = None
         self.keyboard = None
         self.pyautogui = None
         self.pyperclip = None
@@ -403,11 +405,13 @@ class QuickTodoAdderApp:
         self.log("Tray icon started. Use the tray menu to pause or exit.")
         self.keyboard.add_hotkey(trigger, self.on_trigger)
         self.keyboard.add_hotkey(toggle, self.toggle)
+        self._start_hotkey_watchdog()
         try:
             self._run_tray()
         except KeyboardInterrupt:
             self.log("Stopping QuickTodoAdder.")
         finally:
+            self._stop_hotkey_watchdog()
             self.keyboard.unhook_all()
 
     def on_trigger(self) -> None:
@@ -495,10 +499,53 @@ class QuickTodoAdderApp:
 
     def quit(self) -> None:
         self.log("Exiting QuickTodoAdder.")
+        self._stop_hotkey_watchdog()
         if self.keyboard:
             self.keyboard.unhook_all()
         if self.tray_icon:
             self.tray_icon.stop()
+
+    def _start_hotkey_watchdog(self) -> None:
+        if self.hotkey_watchdog_thread:
+            return
+        self.hotkey_watchdog_stop.clear()
+        self.hotkey_watchdog_thread = threading.Thread(target=self._hotkey_watchdog_loop, daemon=True)
+        self.hotkey_watchdog_thread.start()
+
+    def _stop_hotkey_watchdog(self) -> None:
+        self.hotkey_watchdog_stop.set()
+        self.hotkey_watchdog_thread = None
+
+    def _hotkey_watchdog_loop(self) -> None:
+        previous_pressed: set[int] = set()
+        while not self.hotkey_watchdog_stop.wait(3):
+            current_pressed = self._get_pressed_scan_codes()
+            if previous_pressed & current_pressed:
+                self._clear_keyboard_pressed_state()
+                previous_pressed = set()
+            else:
+                previous_pressed = current_pressed
+
+    def _get_pressed_scan_codes(self) -> set[int]:
+        lock = getattr(self.keyboard, "_pressed_events_lock", None)
+        pressed_events = getattr(self.keyboard, "_pressed_events", None)
+        if lock is None or pressed_events is None:
+            return set()
+        with lock:
+            return set(pressed_events)
+
+    def _clear_keyboard_pressed_state(self) -> None:
+        lock = getattr(self.keyboard, "_pressed_events_lock", None)
+        if lock is None:
+            return
+        with lock:
+            getattr(self.keyboard, "_pressed_events", {}).clear()
+            getattr(self.keyboard, "_logically_pressed_keys", {}).clear()
+        listener = getattr(self.keyboard, "_listener", None)
+        if listener:
+            getattr(listener, "active_modifiers", set()).clear()
+            getattr(listener, "modifier_states", {}).clear()
+        self.log("Cleared stale keyboard state.")
 
     def _run_tray(self) -> None:
         if not self.tray or not self.tray_image:
