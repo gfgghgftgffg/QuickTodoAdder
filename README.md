@@ -30,6 +30,19 @@ Configure your model backend and todo.txt path in `config.json`. The `todo_txt.p
 }
 ```
 
+For an HTTPS reverse proxy with a self-signed certificate, keep `host` and `port` separate and disable SSL verification for that provider:
+
+```json
+"llamacpp": {
+  "host": "https://frp-web.com",
+  "port": 11434,
+  "endpoint": "/v1/chat/completions",
+  "verify_ssl": false
+}
+```
+
+The default is `"verify_ssl": true`. Use `false` only for a trusted private endpoint; a publicly trusted certificate is preferred when possible.
+
 Run:
 
 ```powershell

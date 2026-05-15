@@ -52,6 +52,7 @@ class Config:
             "endpoint": "/api/generate",
             "model": "gemma4:e4b",
             "timeout": 60,
+            "verify_ssl": True,
             "think": False,
             "options": {"temperature": 0.1},
         },
@@ -62,6 +63,7 @@ class Config:
             "api_format": "completion",
             "model": "",
             "timeout": 60,
+            "verify_ssl": True,
             "think": False,
             "headers": {},
             "options": {"temperature": 0.1, "n_predict": 512},
@@ -174,6 +176,7 @@ class LocalModelClient:
             self.url,
             json=payload,
             timeout=float(self.config.get("ollama", "timeout", default=60)),
+            verify=self._verify_ssl(),
         )
         response.raise_for_status()
         return self._extract_text(response.json())
@@ -205,9 +208,21 @@ class LocalModelClient:
             json=payload,
             headers=self.config.get("llamacpp", "headers", default={}) or {},
             timeout=float(self.config.get("llamacpp", "timeout", default=60)),
+            verify=self._verify_ssl(),
         )
         response.raise_for_status()
         return self._extract_text(response.json())
+
+    def _verify_ssl(self) -> bool | str:
+        value = self.config.get(self.section, "verify_ssl", default=True)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            return str(self.config.resolve_path(value))
+        return bool(value)
 
     def _extract_text(self, data: dict[str, Any]) -> str:
         for key in ("response", "content", "completion"):
@@ -230,6 +245,9 @@ class LocalModelClient:
 
     def _build_url(self, host: str, port: int, endpoint: str) -> str:
         endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        host = host.rstrip("/")
+        if host.startswith(("http://", "https://")):
+            return f"{host}:{port}{endpoint}"
         return f"http://{host}:{port}{endpoint}"
 
 

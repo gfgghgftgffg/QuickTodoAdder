@@ -12,7 +12,7 @@
     "provider": "llamacpp"
   },
   "ollama": {
-    "host": "10.242.0.142",
+    "host": "A.B.C.D",
     "port": 11434,
     "endpoint": "/api/generate",
     "model": "gemma4:e4b",
@@ -23,12 +23,13 @@
     }
   },
   "llamacpp": {
-    "host": "10.242.0.142",
+    "host": "https://XXXXX.com",
     "port": 11434,
     "endpoint": "/v1/chat/completions",
     "api_format": "chat_completions",
     "model": "",
     "timeout": 60,
+    "verify_ssl": false,
     "think": false,
     "headers": {
       "Authorization": "Bearer XXXXXXX"
@@ -48,7 +49,7 @@
     "timezone_placeholder": "{{timezone}}"
   },
   "todo_txt": {
-    "path": "XXXXX\\todo.txt",
+    "path": "XXXXXX\\todo.txt",
     "timezone": "Asia/Shanghai",
     "include_creation_date": true
   },
